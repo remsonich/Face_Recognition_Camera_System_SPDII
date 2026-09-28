@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Face Recognition System</h1>
+        </header>
+        
+        <main>
+            <div class="video-container">
+                <video id="videoElement" autoplay playsinline></video>
+                <canvas id="canvasElement" style="display:none;"></canvas>
+            </div>
+            
+            <div class="controls">
+                <button id="captureBtn">Capture & Recognize</button>
+                <button id="startVoiceBtn">Start Voice Command</button>
+            </div>
+
+            <div class="status-panel">
+                <h3>Status</h3>
+                <p id="statusText">System ready. Waiting for input...</p>
+                <div id="resultPanel"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
