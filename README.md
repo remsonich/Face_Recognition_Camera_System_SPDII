@@ -1,2 +1,2 @@
 just start communication 
-sonet 
+sonet xxx
