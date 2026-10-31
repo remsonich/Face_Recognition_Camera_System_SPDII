@@ -3,32 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Face Recognition System</title>
+    <title>Face Recognition Camera System - Access Control</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Face Recognition System</h1>
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🔐 Face Recognition Access Control System</h1>
+                <p class="subtitle">Real-time Face Detection & Identification</p>
+            </div>
+            <div class="api-status">
+                <span id="apiStatus" class="status-badge loading">Connecting...</span>
+            </div>
         </header>
-        
-        <main>
-            <div class="video-container">
-                <video id="videoElement" autoplay playsinline></video>
-                <canvas id="canvasElement" style="display:none;"></canvas>
-            </div>
-            
-            <div class="controls">
-                <button id="captureBtn">Capture & Recognize</button>
-                <button id="startVoiceBtn">Start Voice Command</button>
-            </div>
 
-            <div class="status-panel">
-                <h3>Status</h3>
-                <p id="statusText">System ready. Waiting for input...</p>
-                <div id="resultPanel"></div>
-            </div>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Video & Controls Section -->
+            <section class="video-section">
+                <div class="video-container">
+                    <video id="videoElement" autoplay playsinline muted></video>
+                    <canvas id="canvasElement" style="display:none;"></canvas>
+                    <div id="faceOverlay" class="face-overlay"></div>
+                </div>
+
+                <div class="controls">
+                    <button id="captureBtn" class="btn btn-primary" disabled>
+                        📸 Scan Face
+                    </button>
+                    <button id="registerBtn" class="btn btn-success" disabled>
+                        ✏️ Register User
+                    </button>
+                    <button id="cameraToggleBtn" class="btn btn-secondary">
+                        🎥 Start Camera
+                    </button>
+                </div>
+            </section>
+
+            <!-- User Registration Section -->
+            <section id="registrationSection" class="registration-section hidden">
+                <h2>User Registration</h2>
+                <form id="registrationForm" class="form-group">
+                    <div class="form-field">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" placeholder="Enter username" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="fullName">Full Name:</label>
+                        <input type="text" id="fullName" placeholder="Enter full name" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" placeholder="Enter password" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="role">Role:</label>
+                        <select id="role">
+                            <option value="Employee">Employee</option>
+                            <option value="Manager">Manager</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-success">Register User</button>
+                    <button type="button" id="closeRegistration" class="btn btn-secondary">Cancel</button>
+                </form>
+            </section>
+
+            <!-- Status & Results Panel -->
+            <section class="status-section">
+                <div class="status-panel">
+                    <h3>📊 System Status</h3>
+                    <p id="statusText" class="status-message">Initializing system...</p>
+                </div>
+
+                <div class="results-panel" id="resultPanel">
+                    <h3>📋 Recognition Results</h3>
+                    <div id="resultContent" class="result-content">
+                        <p>Results will appear here...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Users List Section -->
+            <section class="users-section">
+                <h2>👥 Registered Users</h2>
+                <button id="refreshUsersBtn" class="btn btn-secondary">Refresh Users</button>
+                <div id="usersList" class="users-list">
+                    <p>Loading users...</p>
+                </div>
+            </section>
         </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Face Recognition Camera System v1.0.0 | API: <span id="apiUrl">http://localhost:8000</span></p>
+        </footer>
+    </div>
+
+    <!-- Modal for image preview -->
+    <div id="imageModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <img id="modalImage" src="" alt="Captured Image">
+        </div>
     </div>
 
     <script src="app.js"></script>
