@@ -7,20 +7,21 @@ from typing import Optional, List, Tuple, Dict
 import logging
 import json
 import cv2
-import warnings
-import sys
-import io
-
-# Capture and suppress the warning from face_recognition_models
-old_stderr = sys.stderr
-sys.stderr = io.StringIO()
-
-try:
-    import face_recognition
-finally:
-    sys.stderr = old_stderr
 
 logger = logging.getLogger(__name__)
+
+# Lazy import of face_recognition
+_face_recognition = None
+
+def _get_face_recognition():
+    global _face_recognition
+    if _face_recognition is None:
+        try:
+            import face_recognition
+            _face_recognition = face_recognition
+        except ImportError as e:
+            raise ImportError(f"face_recognition library not available: {e}")
+    return _face_recognition
 
 
 class FaceRecognizer:
@@ -38,7 +39,7 @@ class FaceRecognizer:
             distance_metric: Distance metric for matching (cosine, euclidean)
         """
         try:
-            self.face_recognition = face_recognition
+            self.face_recognition = _get_face_recognition()
             self.model_name = "face_recognition"
             self.distance_metric = distance_metric
             logger.info(f"Face recognizer initialized with {self.model_name} library")

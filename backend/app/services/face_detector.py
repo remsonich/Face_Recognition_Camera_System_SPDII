@@ -28,41 +28,46 @@ class YOLOFaceDetector:
         self.backend = None
         self.model = None
         self.cascade = None
+        self.model_path = model_path
+        self._yolo_loaded = False
         
-        # Try to load YOLO first
+        # Try to load Haar cascade first (doesn't require downloading anything)
+        try:
+            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            self.cascade = cv2.CascadeClassifier(cascade_path)
+            if self.cascade.empty():
+                logger.error(f"Failed to load Haar cascade from {cascade_path}")
+                self.cascade = None
+            else:
+                self.backend = "haar"
+                logger.info("Haar cascade classifier loaded as fallback")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Haar cascade: {str(e)}")
+            self.cascade = None
+
+    def _ensure_yolo_loaded(self):
+        """Lazy-load YOLO model on first use"""
+        if self._yolo_loaded or self.backend and self.backend.startswith("yolo"):
+            return
+        
         try:
             from ultralytics import YOLO
             try:
                 # Try with provided path first
-                self.model = YOLO(model_path)
+                self.model = YOLO(self.model_path)
                 self.backend = "yolo_file"
-                logger.info(f"YOLO model loaded from {model_path}")
+                logger.info(f"YOLO model loaded from {self.model_path}")
             except Exception:
                 # Fall back to auto-download of yolov8n.pt
                 logger.info("Attempting to auto-download YOLOv8n model...")
                 self.model = YOLO('yolov8n.pt')
                 self.backend = "yolo_auto"
                 logger.info("YOLO model auto-downloaded successfully")
+            self._yolo_loaded = True
         except ImportError:
-            logger.warning("ultralytics package not available, will use Haar cascade fallback")
-            self.backend = None
+            logger.warning("ultralytics package not available")
         except Exception as e:
-            logger.warning(f"YOLO loading failed ({str(e)}), will use Haar cascade fallback")
-            self.backend = None
-        
-        # If YOLO didn't work, load Haar cascade
-        if self.backend is None:
-            try:
-                cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-                self.cascade = cv2.CascadeClassifier(cascade_path)
-                if self.cascade.empty():
-                    logger.error(f"Failed to load Haar cascade from {cascade_path}")
-                    raise ValueError("Could not load Haar cascade classifier")
-                self.backend = "haar"
-                logger.info("Using Haar cascade classifier for face detection")
-            except Exception as e:
-                logger.error(f"Failed to initialize Haar cascade: {str(e)}")
-                raise RuntimeError("Neither YOLO nor Haar cascade could be initialized")
+            logger.warning(f"YOLO loading failed ({str(e)})")
 
     def detect(self, image_bytes: bytes) -> Tuple[np.ndarray, List[Dict]]:
         """
@@ -88,11 +93,17 @@ class YOLOFaceDetector:
 
             detections = []
             
+            # Try YOLO first if available
+            if self.backend is None or not self.backend.startswith("yolo"):
+                # Load YOLO on first detection attempt
+                self._ensure_yolo_loaded()
+            
             if self.backend and self.backend.startswith("yolo"):
                 # Use YOLO detection
                 detections = self._detect_with_yolo(img)
-            else:
-                # Use Haar cascade detection
+            
+            # Fall back to Haar if YOLO didn't work or no detections
+            if not detections and self.cascade is not None:
                 detections = self._detect_with_haar(img)
 
             logger.info(f"Detected {len(detections)} faces using {self.backend} backend")

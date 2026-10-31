@@ -22,13 +22,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Initialize face detection and recognition services
-try:
-    detector = YOLOFaceDetector(conf_threshold=0.6)
-    recognizer = FaceRecognizer(model_name="face_recognition")
-except Exception as e:
-    logger.warning(f"Face services not fully initialized: {str(e)}")
-    detector = None
-    recognizer = None
+detector = None
+recognizer = None
+
+
+def _ensure_services_loaded():
+    """Lazy-load face detection and recognition services on first use"""
+    global detector, recognizer
+    if detector is None or recognizer is None:
+        try:
+            detector = YOLOFaceDetector(conf_threshold=0.6)
+            recognizer = FaceRecognizer(model_name="face_recognition")
+            logger.info("Face services loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load face services: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Face services unavailable: {str(e)}")
 
 
 @router.post(
@@ -50,6 +58,9 @@ async def scan_face(
     - Logs access attempt
     """
     try:
+        # Ensure services are loaded
+        _ensure_services_loaded()
+        
         if not file.content_type.startswith("image/"):
             raise HTTPException(
                 status_code=400,
@@ -227,6 +238,9 @@ async def register_face(
     - Stores embedding in database
     """
     try:
+        # Ensure services are loaded
+        _ensure_services_loaded()
+        
         # Check if user already exists
         existing_user = db.query(models.User).filter(
             models.User.username == request.username
