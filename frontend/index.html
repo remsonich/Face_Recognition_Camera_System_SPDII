@@ -3,19 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Face Recognition System</title>
+<title>Face Recognition & Intruder Alert System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <aside class="side">
-  <div class="brand"><span class="logo"></span>FaceWatch</div>
+  <div class="brand"><span class="logo"></span>FaceWatch AI</div>
   <nav>
     <button class="nav on" data-view="dashboard">ផ្ទាំងគ្រប់គ្រង</button>
     <button class="nav" data-view="monitor">តាមដានផ្ទាល់</button>
     <button class="nav" data-view="register">ចុះឈ្មោះមុខ</button>
     <button class="nav" data-view="log">ប្រវត្តិជូនដំណឹង</button>
+    <button class="nav" data-view="telegram">កំណត់ Telegram</button>
   </nav>
   <div class="conn"><i id="dot"></i><span id="connText">កំពុងភ្ជាប់...</span></div>
 </aside>
@@ -27,7 +28,7 @@
     <div class="card"><b id="sPeople">0</b><span>មនុស្សបានចុះឈ្មោះ</span></div>
     <div class="card"><b id="sScans">0</b><span>ការស្កេនសម័យនេះ</span></div>
     <div class="card warn"><b id="sAlerts">0</b><span>ការជូនដំណឹង</span></div>
-    <div class="card"><b id="sFaces">0</b><span>មុខក្នុងរូបចុងក្រោយ</span></div>
+    <div class="card bad"><b id="sIntruders">0</b><span>ជនចម្លែក / Unknown</span></div>
   </div>
   <div class="grid2">
     <div class="panel"><h2>ប្រភេទការជូនដំណឹង</h2><div id="bars"></div></div>
@@ -36,7 +37,7 @@
 </section>
 
 <section id="monitor" class="view">
-  <h1>តាមដានផ្ទាល់</h1>
+  <h1>តាមដានផ្ទាល់ & ការពារសុវត្ថិភាព</h1>
   <div class="grid2 wide">
     <div class="panel">
       <div class="cam"><video id="video1" autoplay playsinline muted></video></div>
@@ -46,35 +47,45 @@
         <button id="voiceBtn" class="btn ghost">បញ្ជាដោយសំឡេង</button>
       </div>
       <div class="row opts">
-        <label><input type="checkbox" id="optSound" checked> សម្លេង</label>
-        <label><input type="checkbox" id="optSpeak" checked> សំឡេងនិយាយ</label>
+        <label><input type="checkbox" id="optSound" checked> សម្លេងរោទ៍</label>
+        <label><input type="checkbox" id="optSpeak" checked> សំឡេងនិយាយព្រមាន</label>
         <label>ភាសា
-          <select id="optLang"><option value="en-US">English</option><option value="km-KH">ខ្មែរ</option></select></label>
+          <select id="optLang"><option value="en-US">English</option><option value="km-KH" selected>ខ្មែរ</option></select>
+        </label>
       </div>
     </div>
-    <div class="panel"><h2>លទ្ធផល</h2><div id="result" class="empty">មិនទាន់មានការស្កេន។ ចុច «ស្កេនឥឡូវនេះ»។</div></div>
+    <div class="panel">
+      <h2>លទ្ធផលស្កេន</h2>
+      <div id="result" class="empty">មិនទាន់មានការស្កេន។ ចុច «ស្កេនឥឡូវនេះ» ឬបើក «តាមដានស្វ័យប្រវត្តិ»។</div>
+    </div>
   </div>
 </section>
 
 <section id="register" class="view">
-  <h1>ចុះឈ្មោះមុខ</h1>
+  <h1>ចុះឈ្មោះមុខ & បណ្តុះបណ្តាល AI</h1>
   <div class="grid2 wide">
     <div class="panel">
       <div class="cam"><video id="video2" autoplay playsinline muted></video></div>
-      <div class="row"><button id="shotBtn" class="btn">ថតរូប</button><span id="shotCount" class="hint">0 / 5 រូប</span></div>
+      <div class="row">
+        <button id="shotBtn" class="btn">ថតរូបគំរូ</button>
+        <span id="shotCount" class="hint">0 / 5 រូប</span>
+      </div>
       <div id="thumbs" class="thumbs"></div>
     </div>
     <div class="panel">
       <h2>ព័ត៌មានមនុស្ស</h2>
-      <label class="f">ឈ្មោះ<input id="pName" maxlength="60" placeholder="ឧ. សុខា"></label>
-      <label class="f">តួនាទី / លេខសម្គាល់<input id="pRole" maxlength="60" placeholder="ជាជម្រើស"></label>
-      <p class="hint">ថតយ៉ាងតិច ៣ រូប៖ ត្រង់ មើលឆ្វេង មើលស្តាំ ក្នុងពន្លឺគ្រប់គ្រាន់។</p>
-      <label class="chk"><input type="checkbox" id="pConsent"> មនុស្សនេះបានយល់ព្រមឱ្យរក្សាទុកទិន្នន័យមុខរបស់គាត់</label>
-      <button id="saveBtn" class="btn">រក្សាទុកការចុះឈ្មោះ</button>
-      <div id="regMsg" class="hint"></div>
+      <label class="f">ឈ្មោះអ្នកប្រើប្រាស់<input id="pName" maxlength="60" placeholder="ឧ. សុខា / Sokha"></label>
+      <label class="f">តួនាទី / សម្គាល់ (Role)<input id="pRole" maxlength="60" placeholder="ឧ. Staff, Security, Admin"></label>
+      <p class="hint">ថតយ៉ាងតិច ១ ទៅ ៥ រូប៖ ត្រង់ មើលឆ្វេង មើលស្តាំ ក្នុងពន្លឺគ្រប់គ្រាន់ដើម្បីឱ្យ AI ចងចាំមុខបានច្បាស់។</p>
+      <label class="chk"><input type="checkbox" id="pConsent" checked> មនុស្សនេះបានយល់ព្រមឱ្យរក្សាទុកទិន្នន័យមុខក្នុង database</label>
+      <button id="saveBtn" class="btn">រក្សាទុកការចុះឈ្មោះក្នុង Database</button>
+      <div id="regMsg" class="hint" style="margin-top:10px"></div>
     </div>
   </div>
-  <div class="panel"><h2>មនុស្សដែលបានចុះឈ្មោះ</h2><ul id="people" class="list"></ul></div>
+  <div class="panel">
+    <h2>មនុស្សដែលបានចុះឈ្មោះក្នុង Database (<span id="dbPeopleCount">0</span>)</h2>
+    <ul id="people" class="list"></ul>
+  </div>
 </section>
 
 <section id="log" class="view">
@@ -84,7 +95,46 @@
     <ul id="logList" class="list"></ul>
   </div>
 </section>
+
+<section id="telegram" class="view">
+  <h1>កំណត់ Telegram Intruder Alert</h1>
+  <div class="grid2 wide">
+    <div class="panel">
+      <h2>ព័ត៌មាន Bot និង Chat ID</h2>
+      <label class="f">Telegram Bot Token
+        <input id="tgToken" type="password" placeholder="ឧ. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ">
+      </label>
+      <label class="f">Telegram Chat ID
+        <input id="tgChatId" placeholder="ឧ. 987654321">
+      </label>
+      <label class="chk">
+        <input type="checkbox" id="tgEnabled" checked> បើកការផ្ញើរូបថត និងសារជូនដំណឹងទៅ Telegram ពេលមានជនចម្លែក
+      </label>
+      <div class="row">
+        <button id="tgSaveBtn" class="btn">រក្សាទុកការកំណត់</button>
+        <button id="tgTestBtn" class="btn ghost">ផ្ញើសារសាកល្បង</button>
+      </div>
+      <div id="tgStatusMsg" class="hint" style="margin-top:12px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>របៀបបង្កើត Telegram Bot (ត្រឹមតែ ១ នាទី)</h2>
+      <ol style="padding-left:18px; font-size:14px; line-height:1.8">
+        <li>បើកកម្មវិធី Telegram ហើយស្វែងរក <b>@BotFather</b></li>
+        <li>ផ្ញើសារ <code>/newbot</code> ហើយដាក់ឈ្មោះ bot របស់អ្នក</li>
+        <li>អ្នកនឹងទទួលបាន <b>Bot Token</b> — ចម្លងវាមកដាក់ក្នុងប្រអប់ខាងឆ្វេង</li>
+        <li>ស្វែងរក <b>@userinfobot</b> ក្នុង Telegram ឬចុច Start លើ Bot របស់អ្នក</li>
+        <li>អ្នកនឹងឃើញ <b>Id</b> (Chat ID) របស់អ្នក — ចម្លងវាមកដាក់ក្នុងប្រអប់ Chat ID</li>
+        <li>ចុចប៊ូតុង <b>«ផ្ញើសារសាកល្បង»</b> ដើម្បីបញ្ជាក់ការតភ្ជាប់</li>
+      </ol>
+      <p class="hint" style="margin-top:12px">
+        💡 ពេលប្រព័ន្ធចាប់បានមនុស្សដែលមិនស្គាល់ (Unknown Person) វានឹងថតរូបភ្លាមៗ ហើយផ្ញើចូល Telegram របស់អ្នកដោយស្វ័យប្រវត្តិ!
+      </p>
+    </div>
+  </div>
+</section>
 </main>
+
 <div id="toast" role="status"></div>
 <canvas id="canvas" hidden></canvas>
 <script src="app.js"></script>
