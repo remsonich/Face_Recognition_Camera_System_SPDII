@@ -26,9 +26,9 @@
   <h1>ផ្ទាំងគ្រប់គ្រង</h1>
   <div class="stats">
     <div class="card"><b id="sPeople">0</b><span>មនុស្សបានចុះឈ្មោះ</span></div>
-    <div class="card"><b id="sScans">0</b><span>ការស្កេនសម័យនេះ</span></div>
-    <div class="card warn"><b id="sAlerts">0</b><span>ការជូនដំណឹង</span></div>
-    <div class="card bad"><b id="sIntruders">0</b><span>ជនចម្លែក / Unknown</span></div>
+    <div class="card"><b id="sScans">0</b><span>ការស្កេនសរុប</span></div>
+    <div class="card warn"><b id="sAlerts">0</b><span>ការជូនដំណឹងសរុប</span></div>
+    <div class="card bad"><b id="sIntruders">0</b><span>ជនចម្លែកសរុប</span></div>
   </div>
   <div class="grid2">
     <div class="panel"><h2>ប្រភេទការជូនដំណឹង</h2><div id="bars"></div></div>
@@ -37,16 +37,60 @@
 </section>
 
 <section id="monitor" class="view">
-  <h1>តាមដានផ្ទាល់ & ការពារសុវត្ថិភាព</h1>
+  <div class="view-header">
+    <div>
+      <h1>តាមដានផ្ទាល់ & ការពារសុវត្ថិភាពឆ្លាតវៃ (Smart Live Action)</h1>
+      <p class="hint">ប្រព័ន្ធចាប់សញ្ញាមុខ Real-time Bounding Box, ស្កេនស្វ័យប្រវត្តិ និងជូនដំណឹងភ្លាមៗ</p>
+    </div>
+    <div class="header-actions">
+      <button id="camFullscreenBtn" class="btn ghost sm">⛶ ពេញអេក្រង់ (Fullscreen)</button>
+    </div>
+  </div>
+
   <div class="grid2 wide">
     <div class="panel">
-      <div class="cam"><video id="video1" autoplay playsinline muted></video></div>
-      <div class="row">
-        <button id="scanBtn" class="btn">ស្កេនឥឡូវនេះ</button>
-        <button id="autoBtn" class="btn ghost">ចាប់ផ្តើមតាមដានស្វ័យប្រវត្តិ</button>
-        <button id="voiceBtn" class="btn ghost">បញ្ជាដោយសំឡេង</button>
+      <!-- Live Action Camera HUD Box -->
+      <div class="cam hud-cam-container live-action-cam" id="monitorCamBox">
+        <video id="video1" autoplay playsinline muted></video>
+        <!-- Canvas Overlay for Real-time Face Bounding Boxes -->
+        <canvas id="liveFaceCanvas" class="face-overlay-canvas"></canvas>
+
+        <!-- Live Cybernetic HUD Overlay -->
+        <div class="biometric-hud">
+          <!-- 4 Neon Corner Brackets -->
+          <div class="hud-corner tl"></div>
+          <div class="hud-corner tr"></div>
+          <div class="hud-corner bl"></div>
+          <div class="hud-corner br"></div>
+
+          <!-- Top Telemetry Bar -->
+          <div class="hud-top-bar">
+            <div class="hud-badge rec-badge"><span class="hud-blink-dot"></span> LIVE AI MONITOR</div>
+            <div class="hud-badge telemetry-badge" id="hudTelemetry">⚡ AI: Ready • 30 FPS</div>
+          </div>
+
+          <!-- Active Scanning Laser Beam -->
+          <div class="hud-scanner-beam" id="monitorScannerBeam"></div>
+
+          <!-- Live Status Pill -->
+          <div class="hud-status-pill" id="monitorStatusPill">
+            <span class="hud-status-dot" id="monitorStatusDot"></span>
+            <span id="monitorStatusText">រង់ចាំមនុស្សមុខកាមេរ៉ា...</span>
+          </div>
+
+          <!-- Flash Element -->
+          <div class="hud-flash" id="monitorFlash"></div>
+        </div>
       </div>
-      <div class="row opts">
+
+      <!-- Control Buttons -->
+      <div class="row auto-train-actions">
+        <button id="autoBtn" class="btn auto-btn-glow">🚀 ចាប់ផ្តើមតាមដានស្វ័យប្រវត្តិ (Smart Auto)</button>
+        <button id="scanBtn" class="btn">📸 ស្កេនឥឡូវនេះ</button>
+        <button id="voiceBtn" class="btn ghost">🎙️ បញ្ជាដោយសំឡេង</button>
+      </div>
+
+      <div class="row opts" style="margin-top:14px">
         <label><input type="checkbox" id="optSound" checked> សម្លេងរោទ៍</label>
         <label><input type="checkbox" id="optSpeak" checked> សំឡេងនិយាយព្រមាន</label>
         <label>ភាសា
@@ -54,29 +98,87 @@
         </label>
       </div>
     </div>
+
     <div class="panel">
-      <h2>លទ្ធផលស្កេន</h2>
+      <h2>លទ្ធផលស្កេន Real-time</h2>
       <div id="result" class="empty">មិនទាន់មានការស្កេន។ ចុច «ស្កេនឥឡូវនេះ» ឬបើក «តាមដានស្វ័យប្រវត្តិ»។</div>
     </div>
   </div>
 </section>
 
 <section id="register" class="view">
-  <h1>ចុះឈ្មោះមុខ & បណ្តុះបណ្តាល AI</h1>
+  <h1>ចុះឈ្មោះមុខ & បណ្តុះបណ្តាល AI ឆ្លាតវៃ</h1>
   <div class="grid2 wide">
     <div class="panel">
-      <div class="cam"><video id="video2" autoplay playsinline muted></video></div>
-      <div class="row">
-        <button id="shotBtn" class="btn">ថតរូបគំរូ</button>
-        <span id="shotCount" class="hint">0 / 5 រូប</span>
+      <!-- Interactive Guided Action Stepper -->
+      <div class="step-guide-banner" id="stepGuideBanner">
+        <div class="step-badge" id="stepBadge">🎯 ជំហានទី ១ / ៥</div>
+        <div class="step-instruction">
+          <b id="stepTitle">មើលចំកណ្តាលកាមេរ៉ា (Look Straight)</b>
+          <span id="stepTip" class="hint">រក្សាទឹកមុខធម្មតា និងដាក់មុខចំកណ្តាលរង្វង់</span>
+        </div>
+        <div class="step-icon" id="stepIcon">👁️</div>
       </div>
+
+      <div class="stepper-dots" id="stepperDots">
+        <span class="dot-item active" data-step="1">1. មើលត្រង់ 👁️</span>
+        <span class="dot-item" data-step="2">2. ងាកឆ្វេង 👈</span>
+        <span class="dot-item" data-step="3">3. ងាកស្តាំ 👉</span>
+        <span class="dot-item" data-step="4">4. ងើបលើ 👆</span>
+        <span class="dot-item" data-step="5">5. ញញឹម 😊</span>
+      </div>
+
+      <!-- Camera with Biometric Targeting HUD (The Face Ruler Frame) -->
+      <div class="cam hud-cam-container" id="regCamContainer">
+        <video id="video2" autoplay playsinline muted></video>
+
+        <!-- Biometric HUD Overlay -->
+        <div class="biometric-hud" id="biometricHud">
+          <!-- 4 Neon Corner Brackets -->
+          <div class="hud-corner tl"></div>
+          <div class="hud-corner tr"></div>
+          <div class="hud-corner bl"></div>
+          <div class="hud-corner br"></div>
+
+          <!-- Biometric Oval Face Guide / Ruler -->
+          <div class="hud-oval-guide" id="hudOvalGuide">
+            <div class="hud-crosshair-h"></div>
+            <div class="hud-crosshair-v"></div>
+            <div class="hud-scanner-beam" id="hudScannerBeam"></div>
+          </div>
+
+          <!-- Live Alignment Status Pill -->
+          <div class="hud-status-pill" id="hudStatusPill">
+            <span class="hud-status-dot" id="hudStatusDot"></span>
+            <span id="hudStatusText">រង់ចាំចាប់ផ្តើម...</span>
+          </div>
+
+          <!-- Big Animated Countdown -->
+          <div class="hud-countdown" id="hudCountdown" style="display:none">
+            <span id="hudCountdownNum">3</span>
+          </div>
+
+          <!-- Camera Flash Element -->
+          <div class="hud-flash" id="hudFlash"></div>
+        </div>
+      </div>
+
+      <!-- Action Control Buttons -->
+      <div class="row auto-train-actions">
+        <button id="smartAutoBtn" class="btn auto-btn-glow">🚀 ចាប់ផ្តើមស្កេនឆ្លាតវៃ (Auto Smart)</button>
+        <button id="resetTrainBtn" class="btn ghost">🔄 ចាប់ផ្តើមឡើងវិញ</button>
+        <button id="shotBtn" class="btn ghost">📸 ថតដោយដៃ (Manual)</button>
+        <span id="shotCount" class="hint" style="margin-left:auto; font-weight:600">0 / 5 រូប</span>
+      </div>
+
       <div id="thumbs" class="thumbs"></div>
     </div>
+
     <div class="panel">
       <h2>ព័ត៌មានមនុស្ស</h2>
       <label class="f">ឈ្មោះអ្នកប្រើប្រាស់<input id="pName" maxlength="60" placeholder="ឧ. សុខា / Sokha"></label>
       <label class="f">តួនាទី / សម្គាល់ (Role)<input id="pRole" maxlength="60" placeholder="ឧ. Staff, Security, Admin"></label>
-      <p class="hint">ថតយ៉ាងតិច ១ ទៅ ៥ រូប៖ ត្រង់ មើលឆ្វេង មើលស្តាំ ក្នុងពន្លឺគ្រប់គ្រាន់ដើម្បីឱ្យ AI ចងចាំមុខបានច្បាស់។</p>
+      <p class="hint">💡 ប្រព័ន្ធឆ្លាតវៃនឹងថតមុខ ៥ មុំស្វ័យប្រវត្តិតាមការណែនាំ ដើម្បីឱ្យ AI ចងចាំមុខបានច្បាស់ 100%។</p>
       <label class="chk"><input type="checkbox" id="pConsent" checked> មនុស្សនេះបានយល់ព្រមឱ្យរក្សាទុកទិន្នន័យមុខក្នុង database</label>
       <button id="saveBtn" class="btn">រក្សាទុកការចុះឈ្មោះក្នុង Database</button>
       <div id="regMsg" class="hint" style="margin-top:10px"></div>
@@ -89,10 +191,145 @@
 </section>
 
 <section id="log" class="view">
-  <h1>ប្រវត្តិជូនដំណឹង</h1>
-  <div class="panel">
-    <div class="row"><button id="clearLog" class="btn ghost">សម្អាតប្រវត្តិ</button></div>
-    <ul id="logList" class="list"></ul>
+  <div class="view-header">
+    <div>
+      <h1>ប្រវត្តិជូនដំណឹង & កំណត់ត្រាសន្តិសុខ</h1>
+      <p class="hint">ត្រួតពិនិត្យ ស្វែងរក និងច្រោះកំណត់ត្រាការជូនដំណឹងតាមថ្ងៃ ខែ ឆ្នាំ ឬប្រភេទជនចម្លែក</p>
+    </div>
+    <div class="header-actions">
+      <button id="exportCsvBtn" class="btn ghost">📥 ទាញយកជា Excel/CSV</button>
+      <button id="clearLog" class="btn stop">🗑️ សម្អាតប្រវត្តិទាំងអស់</button>
+    </div>
+  </div>
+
+  <!-- Filter & Time-Period Control Bar -->
+  <div class="panel filter-panel">
+    <!-- Date Quick Tabs -->
+    <div class="filter-group">
+      <label class="filter-label">ជ្រើសរើសពេលវេលា (Quick Time Filter)៖</label>
+      <div class="filter-tabs" id="dateFilterTabs">
+        <button class="tab-btn active" data-period="all">ទាំងអស់ (All)</button>
+        <button class="tab-btn" data-period="today">ថ្ងៃនេះ (Today)</button>
+        <button class="tab-btn" data-period="yesterday">ម្សិលមិញ (Yesterday)</button>
+        <button class="tab-btn" data-period="week">៧ ថ្ងៃចុងក្រោយ (7 Days)</button>
+        <button class="tab-btn" data-period="month">ខែនេះ (This Month)</button>
+        <button class="tab-btn" data-period="last_month">ខែមុន (Last Month)</button>
+        <button class="tab-btn" data-period="year">ឆ្នាំនេះ (This Year)</button>
+        <button class="tab-btn" data-period="custom">ចន្លោះថ្ងៃ (Custom)...</button>
+      </div>
+    </div>
+
+    <!-- Custom Date Range Row -->
+    <div class="custom-date-row" id="customDateRow" style="display: none;">
+      <div class="date-field">
+        <span>ចាប់ពីថ្ងៃ៖</span>
+        <input type="date" id="customStartDate">
+      </div>
+      <div class="date-field">
+        <span>ដល់ថ្ងៃ៖</span>
+        <input type="date" id="customEndDate">
+      </div>
+      <button id="applyCustomDateBtn" class="btn">អនុវត្ត</button>
+    </div>
+
+    <!-- Filters & Search Row -->
+    <div class="filter-controls-row">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="logSearch" placeholder="ស្វែងរកតាមឈ្មោះ, ប្រភេទ, ឬកាលបរិច្ឆេទ...">
+        <button id="clearSearchBtn" class="clear-search-btn" title="លុបការស្វែងរក" style="display:none">×</button>
+      </div>
+
+      <div class="filter-select-group">
+        <label>ប្រភេទ៖</label>
+        <select id="typeFilter">
+          <option value="all">ប្រភេទទាំងអស់ (All Types)</option>
+          <option value="spoof_detected">📱 🚨 ការក្លែងបន្លំ (Screen Spoof)</option>
+          <option value="unknown_person">🚨 ជនមិនស្គាល់ / ជនចម្លែក (Intruders)</option>
+          <option value="person_changed">👤 មានមនុស្សថ្មី (New Person)</option>
+          <option value="person_left">🚪 មនុស្សចាកចេញ (Left)</option>
+          <option value="scene_and_person_changed">🔄 មនុស្ស & ទិដ្ឋភាពប្តូរ</option>
+          <option value="scene_changed">🖼️ ទិដ្ឋភាពប្តូរ</option>
+          <option value="telegram_only">📱 ផ្ញើ Telegram រួចរាល់</option>
+        </select>
+      </div>
+
+      <div class="filter-select-group">
+        <label>បង្ហាញក្នុងមួយទំព័រ៖</label>
+        <select id="pageSizeSelect">
+          <option value="10">10 ជួរ</option>
+          <option value="25" selected>25 ជួរ</option>
+          <option value="50">50 ជួរ</option>
+          <option value="100">100 ជួរ</option>
+          <option value="all">ទាំងអស់</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Mini-Stats for Filtered Data -->
+  <div class="log-summary-bar">
+    <div class="summary-item">
+      <span>លទ្ធផលឃើញ៖</span>
+      <b id="filteredCount">0</b> កំណត់ត្រា
+    </div>
+    <div class="summary-item bad" style="border-left: 3px solid #ea580c;">
+      <span>📱 ការក្លែងបន្លំ៖</span>
+      <b id="filteredSpoofs">0</b>
+    </div>
+    <div class="summary-item bad">
+      <span>🚨 ជនចម្លែក៖</span>
+      <b id="filteredIntruders">0</b>
+    </div>
+    <div class="summary-item ok">
+      <span>📱 បានផ្ញើ Telegram៖</span>
+      <b id="filteredTelegram">0</b>
+    </div>
+    <div class="summary-item info">
+      <span>🕒 ចន្លោះពេល៖</span>
+      <span id="currentPeriodLabel">ទាំងអស់</span>
+    </div>
+  </div>
+
+  <!-- Table Container -->
+  <div class="panel table-panel">
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 55px; text-align: center;">ល.រ</th>
+            <th style="width: 175px;">កាលបរិច្ឆេទ & ម៉ោង</th>
+            <th>ប្រភេទការជូនដំណឹង</th>
+            <th style="width: 95px; text-align: center;">ចំនួនមុខ</th>
+            <th>អត្តសញ្ញាណ / ឈ្មោះ</th>
+            <th style="width: 145px; text-align: center;">Telegram Alert</th>
+            <th style="width: 80px; text-align: center;">សកម្មភាព</th>
+          </tr>
+        </thead>
+        <tbody id="logTableBody">
+          <!-- Filled dynamically by JavaScript -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Empty State -->
+    <div id="tableEmptyState" class="table-empty" style="display: none;">
+      <div class="empty-icon">📂</div>
+      <h3>រកមិនឃើញកំណត់ត្រាឡើយ</h3>
+      <p class="hint">មិនមានទិន្នន័យត្រូវគ្នានឹងកាលបរិច្ឆេទ ឬពាក្យស្វែងរកដែលអ្នកបានជ្រើសរើសទេ។</p>
+    </div>
+
+    <!-- Pagination Footer -->
+    <div class="table-pagination" id="tablePagination">
+      <div class="pagination-info">
+        <span id="paginationInfoText">បង្ហាញ 0 ដល់ 0 នៃ 0 កំណត់ត្រា</span>
+      </div>
+      <div class="pagination-controls">
+        <button id="prevPageBtn" class="btn ghost sm" disabled>« មុន</button>
+        <span id="currentPageIndicator" class="page-num">ទំព័រ 1 / 1</span>
+        <button id="nextPageBtn" class="btn ghost sm" disabled>បន្ទាប់ »</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -137,6 +374,6 @@
 
 <div id="toast" role="status"></div>
 <canvas id="canvas" hidden></canvas>
-<script src="app.js"></script>
+<script src="app.js?v=9.0"></script>
 </body>
 </html>

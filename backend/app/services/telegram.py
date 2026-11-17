@@ -166,5 +166,66 @@ class TelegramService:
             logger.error(f"Error sending Telegram text fallback alert: {e}")
             return False
 
+    def send_spoof_alert(
+        self,
+        image_bytes: bytes,
+        spoof_reason: str,
+        suspected_user: Optional[str] = None
+    ) -> bool:
+        if not self.enabled or not self.is_configured():
+            return False
+
+        current_time = time.time()
+        if current_time - self.last_alert_time < self.cooldown_seconds:
+            logger.info("Telegram spoof alert suppressed due to cooldown.")
+            return False
+
+        self.last_alert_time = current_time
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        suspect_str = f"\n👤 <b>គោលដៅក្លែងបន្លំ (Suspected Identity):</b> {suspected_user}" if suspected_user else ""
+
+        caption = (
+            "🚨 <b>ការព្រមានសន្តិសុខ៖ រកឃើញការក្លែងបន្លំផ្ទៃមុខ! (SPOOF ATTACK DETECTED)</b> 🚨\n"
+            "⚠️ ប្រព័ន្ធបានទប់ស្កាត់ការក្លែងបន្លំដោយប្រើអេក្រង់ទូរស័ព្ទ ឬរូបថត 2D (Anti-Spoofing Blocked).\n\n"
+            f"🕒 <b>ពេលវេលា:</b> {timestamp}\n"
+            f"📱 <b>ឧបករណ៍:</b> អេក្រង់ទូរស័ព្ទ / 2D Screen or Photo"
+            f"{suspect_str}\n"
+            f"🔍 <b>មូលហេតុបច្ចេកទេស:</b> {spoof_reason}\n"
+            "📍 <b>ទីតាំង:</b> Live Camera Monitor"
+        )
+
+        photo_url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        try:
+            with httpx.Client(timeout=12.0) as client:
+                files = {"photo": ("spoof_alert.jpg", image_bytes, "image/jpeg")}
+                data = {
+                    "chat_id": self.chat_id,
+                    "caption": caption,
+                    "parse_mode": "HTML"
+                }
+                res = client.post(photo_url, data=data, files=files)
+                if res.status_code == 200:
+                    logger.info("Telegram spoof photo alert sent successfully.")
+                    return True
+                else:
+                    logger.warning(f"sendPhoto spoof alert failed: {res.text}. Trying sendMessage fallback.")
+        except Exception as e:
+            logger.error(f"Error sending Telegram spoof photo alert: {e}")
+
+        # Fallback to plain text message if photo upload fails
+        try:
+            msg_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+            with httpx.Client(timeout=10.0) as client:
+                res = client.post(msg_url, json={
+                    "chat_id": self.chat_id,
+                    "text": caption,
+                    "parse_mode": "HTML"
+                })
+                return res.status_code == 200
+        except Exception as e:
+            logger.error(f"Error sending Telegram spoof text fallback alert: {e}")
+            return False
+
 
 telegram_service = TelegramService()

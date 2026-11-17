@@ -50,6 +50,8 @@ class DetectedFaceInfo(BaseModel):
     matched: bool
     distance: float
     confidence: float
+    is_spoof: bool = False
+    spoof_reason: Optional[str] = None
 
 
 class RecognitionResponse(BaseModel):
@@ -63,6 +65,9 @@ class RecognitionResponse(BaseModel):
     scene_changed: bool = False
     person_changed: bool = False
     telegram_sent: bool = False
+    is_spoof: bool = False
+    spoof_detected_count: int = 0
+    log_id: Optional[int] = None
     message: str
 
 
@@ -82,3 +87,40 @@ class TelegramConfigResponse(BaseModel):
 class TelegramTestRequest(BaseModel):
     bot_token: Optional[str] = None
     chat_id: Optional[str] = None
+
+
+class AlertLogOut(BaseModel):
+    id: int
+    type: str
+    faces: int
+    matched: List[str] = []
+    telegram: bool
+    time: str
+
+    class Config:
+        from_attributes = True
+
+
+class AlertLogCreate(BaseModel):
+    type: str
+    faces: int = 1
+    matched: List[str] = []
+    telegram: bool = False
+
+
+class FrameCheckRequest(BaseModel):
+    image: str  # Base64 image
+
+
+class FrameCheckResponse(BaseModel):
+    face_found: bool
+    quality_ok: bool
+    status: str
+    message: str
+    box: Optional[List[int]] = None
+    centered: bool = False
+    too_close: bool = False
+    too_far: bool = False
+    multiple_faces: bool = False
+
+
