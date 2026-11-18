@@ -128,22 +128,26 @@ def get_face_locations_and_encodings(bgr_img: np.ndarray, rgb_img: np.ndarray):
     """
     Multi-pass robust face detection:
     1. Standard HOG on raw RGB.
-    2. If no faces detected, apply adaptive CLAHE enhancement (ideal for webcam shadows/backlighting).
-    3. If still no faces, try CLAHE with 2x upsampling.
+    2. If no valid faces detected, apply adaptive CLAHE enhancement (ideal for webcam shadows/backlighting).
+    3. If still no valid faces, try CLAHE with 2x upsampling.
+    Filters out tiny noisy false detections (< 42px) when normal webcam frames are processed.
     """
+    def _filter_valid_locs(raw_locs):
+        return [loc for loc in raw_locs if (loc[2] - loc[0]) >= 42 and (loc[1] - loc[3]) >= 42]
+
     # Pass 1: Standard detection
-    locs = face_recognition.face_locations(rgb_img)
+    locs = _filter_valid_locs(face_recognition.face_locations(rgb_img))
     active_rgb = rgb_img
 
     # Pass 2: CLAHE enhancement for dim/backlit scenes
     if not locs:
         enhanced_rgb = enhance_image_clahe(bgr_img)
-        locs = face_recognition.face_locations(enhanced_rgb, number_of_times_to_upsample=1)
+        locs = _filter_valid_locs(face_recognition.face_locations(enhanced_rgb, number_of_times_to_upsample=1))
         active_rgb = enhanced_rgb
 
     # Pass 3: Upsample=2 on enhanced image for small or distant faces
     if not locs:
-        locs = face_recognition.face_locations(active_rgb, number_of_times_to_upsample=2)
+        locs = _filter_valid_locs(face_recognition.face_locations(active_rgb, number_of_times_to_upsample=2))
 
     encodings = []
     if locs:
@@ -160,10 +164,39 @@ def compare_scene_histograms(hist1, hist2, threshold: float = 0.7) -> bool:
     return correlation < threshold
 
 
+def face_distance_to_confidence(face_distance: float, match_threshold: float = 0.54) -> float:
+    """
+    Convert dlib ResNet Euclidean face distance into an intuitive 0-100% confidence score.
+    Calibrated for real-world webcam lighting variations:
+      - dist = 0.00 -> 100.0%
+      - dist = 0.30 -> 84.4%
+      - dist = 0.40 -> 75.2%
+      - dist = 0.48 -> 66.8%
+      - dist = 0.54 (threshold) -> 60.0%
+      - dist = 0.60 -> 48.0%
+      - dist >= 0.84 -> 0.0%
+    """
+    if face_distance <= match_threshold:
+        ratio = max(0.0, face_distance) / max(0.01, match_threshold)
+        score = 100.0 - (ratio ** 1.6) * 40.0
+        return round(max(60.0, min(100.0, score)), 1)
+    else:
+        excess = face_distance - match_threshold
+        score = 60.0 * (1.0 - (excess / 0.30))
+        return round(max(0.0, min(59.9, score)), 1)
+
+
 def check_liveness_and_spoof(bgr_img: np.ndarray, loc: tuple) -> tuple:
     """
-    Evaluates whether a detected face is from a live 3D human
-    or a 2D presentation attack (smartphone screen, tablet, or printed photo).
+    V2 Multi-Factor Anti-Spoofing & Liveness Detection Engine.
+    Evaluates whether a detected face is from a live 3D human or a 2D presentation attack
+    (smartphone screen, tablet, monitor, or printed photo) even on vivid OLED screens or tilted phones:
+      1. Closed 4-sided screen quadrilateral contour enclosing the face.
+      2. Parallel Left/Right & Top/Bottom screen bezel edges bracketing the face at any tilt angle (+-35 deg).
+      3. Self-luminous backlit screen brightness step (screen glowing brighter than surrounding hand/room).
+      4. Color gamut desaturation (HSV saturation washout on recaptured displays).
+      5. Face-surface specular glass reflection/glare.
+      6. 2D flat surface micro-texture variance (Laplacian).
 
     Returns: (is_spoof: bool, reason_str: str, spoof_score: float, details: dict)
     """
@@ -171,106 +204,202 @@ def check_liveness_and_spoof(bgr_img: np.ndarray, loc: tuple) -> tuple:
     top, right, bottom, left = loc
     fh = max(1, bottom - top)
     fw = max(1, right - left)
+    fcx = (left + right) / 2.0
+    fcy = (top + bottom) / 2.0
 
-    # Context window around the face to detect screen bezel / phone edges
-    pad_y = int(fh * 0.40)
-    pad_x = int(fw * 0.40)
-    exp_top = max(0, top - pad_y)
-    exp_bottom = min(h_img, bottom + pad_y)
-    exp_left = max(0, left - pad_x)
-    exp_right = min(w_img, right + pad_x)
+    # Expanded search region (up to ~0.95x face size around face) to catch full smartphone/tablet bezels
+    pad_y = int(fh * 0.95)
+    pad_x = int(fw * 0.95)
+    ex1 = max(0, left - pad_x)
+    ey1 = max(0, top - pad_y)
+    ex2 = min(w_img, right + pad_x)
+    ey2 = min(h_img, bottom + pad_y)
 
-    exp_roi = bgr_img[exp_top:exp_bottom, exp_left:exp_right]
+    exp_roi = bgr_img[ey1:ey2, ex1:ex2]
     face_roi = bgr_img[top:bottom, left:right]
 
     if exp_roi.size == 0 or face_roi.size == 0:
         return False, "Valid", 0.0, {}
 
+    rel_l = left - ex1
+    rel_r = right - ex1
+    rel_t = top - ey1
+    rel_b = bottom - ey1
+    rel_cx = fcx - ex1
+    rel_cy = fcy - ey1
+
     spoof_points = 0
+    face_surface_flags = 0
+    screen_geometry_confirmed = False
     reasons = []
     details = {}
 
-    # 1. Bezel / Straight Line Edge Detection
-    # On a phone screen or tablet, the screen border is close to the face crop and is continuous
     gray_exp = cv2.cvtColor(exp_roi, cv2.COLOR_BGR2GRAY)
-    blurred_exp = cv2.GaussianBlur(gray_exp, (5, 5), 0)
-    edges = cv2.Canny(blurred_exp, 60, 180)
+    blur_exp = cv2.GaussianBlur(gray_exp, (5, 5), 0)
+    edges = cv2.Canny(blur_exp, 45, 140)
 
-    min_line_len = int(min(fh, fw) * 0.6)
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=45, minLineLength=min_line_len, maxLineGap=10)
+    # 1. Closed 4-Sided Screen Contour Enclosing the Face (catches phone/tablet screens even with vivid OLED photos!)
+    dilated = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    quad_encloses_face = False
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < (fw * fh * 1.1):
+            continue
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.04 * peri, True)
+        if 4 <= len(approx) <= 6:
+            if cv2.pointPolygonTest(approx, (rel_cx, rel_cy), False) >= 0:
+                quad_encloses_face = True
+                break
 
-    cardinal_lines = 0
+    details["quad_encloses_face"] = quad_encloses_face
+    if quad_encloses_face:
+        spoof_points += 50
+        screen_geometry_confirmed = True
+        reasons.append("រកឃើញស៊ុមអេក្រង់ទូរស័ព្ទ ៤ ជ្រុង (Phone/Tablet Screen Frame Detected)")
+
+    # 2. Parallel Bracketing Bezel Edges at ANY Tilt Angle (up to +-35 deg from vertical/horizontal)
+    min_line_len = int(min(fh, fw) * 0.65)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=35, minLineLength=min_line_len, maxLineGap=18)
+
+    left_verticals = []
+    right_verticals = []
+    top_horizontals = []
+    bottom_horizontals = []
+
     if lines is not None:
         for l in lines:
             line_pts = l[0] if len(l.shape) > 1 else l
             x1, y1, x2, y2 = line_pts
-            angle = np.abs(np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi)
-            if angle < 18 or angle > 162 or (72 < angle < 108):
-                cardinal_lines += 1
+            angle = float(np.degrees(np.arctan2(y2 - y1, x2 - x1))) % 180.0
+            mx = (x1 + x2) / 2.0
+            my = (y1 + y2) / 2.0
 
-    details["cardinal_lines"] = cardinal_lines
-    if cardinal_lines >= 8:
-        spoof_points += 35
-        reasons.append("រកឃើញគែមអេក្រង់ទូរស័ព្ទ (Screen Bezel Edges)")
-    elif cardinal_lines >= 4:
-        spoof_points += 15
+            if 55.0 <= angle <= 125.0:
+                ymin, ymax = min(y1, y2), max(y1, y2)
+                if ymax > rel_t and ymin < rel_b:
+                    if mx < rel_l + fw * 0.15:
+                        left_verticals.append((mx, angle))
+                    elif mx > rel_r - fw * 0.15:
+                        right_verticals.append((mx, angle))
+            elif angle <= 35.0 or angle >= 145.0:
+                xmin, xmax = min(x1, x2), max(x1, x2)
+                if xmax > rel_l and xmin < rel_r:
+                    norm_angle = angle if angle <= 90 else angle - 180.0
+                    if my < rel_t + fh * 0.15:
+                        top_horizontals.append((my, norm_angle))
+                    elif my > rel_b - fh * 0.15:
+                        bottom_horizontals.append((my, norm_angle))
 
-    # 2. Color Saturation & Gamut (Screens suffer from digital re-sampling and gamut desaturation)
+    parallel_lr_pairs = 0
+    for lx, la in left_verticals:
+        for rx, ra in right_verticals:
+            span_w = rx - lx
+            if abs(la - ra) <= 12.0 and (fw * 0.95 <= span_w <= fw * 3.0):
+                parallel_lr_pairs += 1
+
+    parallel_tb_pairs = 0
+    for ty, ta in top_horizontals:
+        for by, ba in bottom_horizontals:
+            span_h = by - ty
+            if abs(ta - ba) <= 12.0 and (fh * 0.95 <= span_h <= fh * 3.2):
+                parallel_tb_pairs += 1
+
+    bezel_sides = (
+        int(len(left_verticals) > 0)
+        + int(len(right_verticals) > 0)
+        + int(len(top_horizontals) > 0)
+        + int(len(bottom_horizontals) > 0)
+    )
+    details["parallel_lr_pairs"] = parallel_lr_pairs
+    details["parallel_tb_pairs"] = parallel_tb_pairs
+    details["bezel_sides"] = bezel_sides
+
+    if parallel_lr_pairs >= 8 and bezel_sides >= 3:
+        spoof_points += 40
+        screen_geometry_confirmed = True
+        reasons.append("រកឃើញគែមអេក្រង់សងខាងស្របគ្នា (Parallel Phone Bezel Edges)")
+    elif parallel_lr_pairs >= 4 and parallel_tb_pairs >= 2 and bezel_sides == 4:
+        spoof_points += 30
+        reasons.append("រកឃើញគែមស៊ុមអេក្រង់ (Rectangular Screen Borders)")
+
+    # 3. Color Saturation & Gamut (Screens suffer from digital re-sampling and gamut desaturation)
     hsv_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2HSV)
-    sat_channel = hsv_face[:, :, 1]
-    val_channel = hsv_face[:, :, 2]
-
-    mean_sat = float(np.mean(sat_channel))
-    mean_val = float(np.mean(val_channel))
+    mean_sat = float(np.mean(hsv_face[:, :, 1]))
+    mean_val = float(np.mean(hsv_face[:, :, 2]))
     details["mean_sat"] = round(mean_sat, 2)
     details["mean_val"] = round(mean_val, 2)
 
-    # Live human face under normal room lighting has warm skin tone (mean_sat >= 48)
     if mean_val > 50:
         if mean_sat < 36.0:
             spoof_points += 35
+            face_surface_flags += 1
             reasons.append(f"កម្រិតពណ៌ស្លេកខុសប្រក្រតី (Screen Desaturation S={mean_sat:.1f})")
         elif mean_sat < 44.0:
             spoof_points += 20
+            face_surface_flags += 1
             reasons.append(f"កម្រិតពណ៌ទាប (Low Color Saturation S={mean_sat:.1f})")
 
-    # 3. Specular Glare / Glass Reflection
-    hsv_exp = cv2.cvtColor(exp_roi, cv2.COLOR_BGR2HSV)
-    v_exp = hsv_exp[:, :, 2]
-    s_exp = hsv_exp[:, :, 1]
-    glare_mask = (v_exp > 245) & (s_exp < 30)
-    glare_ratio = float(np.sum(glare_mask)) / float(exp_roi.shape[0] * exp_roi.shape[1])
+    # 4. Self-Luminous Screen Backlight Glow (Screen emits light brighter than surrounding hand/room)
+    outer_mask = np.ones(gray_exp.shape, dtype=np.uint8)
+    cv2.rectangle(
+        outer_mask,
+        (max(0, rel_l - int(fw * 0.25)), max(0, rel_t - int(fh * 0.25))),
+        (min(gray_exp.shape[1], rel_r + int(fw * 0.25)), min(gray_exp.shape[0], rel_b + int(fh * 0.25))),
+        0,
+        -1
+    )
+    outer_vals = gray_exp[outer_mask == 1]
+    outer_bright = float(np.mean(outer_vals)) if outer_vals.size > 0 else mean_val
+    screen_glow_delta = mean_val - outer_bright
+    details["screen_glow_delta"] = round(screen_glow_delta, 1)
+
+    if screen_glow_delta >= 35.0 and (parallel_lr_pairs >= 4 or quad_encloses_face or mean_val > 190.0):
+        spoof_points += 25
+        reasons.append(f"ពន្លឺអេក្រង់ភ្លឺចែងចាំងខុសប្រក្រតី (Backlit Screen Glow +{screen_glow_delta:.0f})")
+
+    # 5. Specular Glare / Glass Reflection on the face surface itself (avoids background windows)
+    glare_pad_y = int(fh * 0.10)
+    glare_pad_x = int(fw * 0.10)
+    g_roi = bgr_img[
+        max(0, top - glare_pad_y):min(h_img, bottom + glare_pad_y),
+        max(0, left - glare_pad_x):min(w_img, right + glare_pad_x)
+    ]
+    hsv_glare = cv2.cvtColor(g_roi, cv2.COLOR_BGR2HSV)
+    glare_mask = (hsv_glare[:, :, 2] > 245) & (hsv_glare[:, :, 1] < 25)
+    glare_ratio = float(np.sum(glare_mask)) / float(max(1, g_roi.shape[0] * g_roi.shape[1]))
     details["glare_ratio"] = round(glare_ratio, 4)
 
-    if glare_ratio > 0.022:
+    if glare_ratio > 0.045:
         spoof_points += 25
+        face_surface_flags += 1
         reasons.append("ពន្លឺផ្លាតលើកញ្ចក់អេក្រង់ (Screen Glare / Specular Reflection)")
-    elif glare_ratio > 0.012:
+    elif glare_ratio > 0.025:
         spoof_points += 10
 
-    # 4. Texture Variance (Laplacian of Gaussian)
-    # Real live faces have high micro-texture variance (> 350).
-    # Screen re-photographed faces are blurred or low-contrast (< 220).
+    # 6. Texture Variance (Laplacian of Gaussian)
     gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
     lap_var = float(cv2.Laplacian(gray_face, cv2.CV_64F).var())
     details["lap_var"] = round(lap_var, 2)
 
     if lap_var < 180.0:
         spoof_points += 25
+        face_surface_flags += 1
         reasons.append(f"ផ្ទៃរាបស្មើគ្មានលម្អិតស្បែក (Flat 2D Surface Var={lap_var:.1f})")
-    elif lap_var < 260.0:
+    elif lap_var < 240.0 and mean_val > 100.0:
         spoof_points += 15
 
-    # Live human bonus: If face has very high natural texture variance (> 450) and rich natural saturation (> 55),
-    # significantly discount any false line alarms (from room walls/shelves in background)
-    if lap_var > 450.0 and mean_sat > 55.0:
-        spoof_points = max(0, spoof_points - 35)
+    # Live human discount: ONLY apply if NO confirmed phone screen frame geometry was detected!
+    if (not screen_geometry_confirmed) and ((mean_sat >= 55.0 and lap_var >= 280.0) or (mean_sat >= 70.0 and lap_var >= 220.0)):
+        spoof_points = max(0, spoof_points - 40)
 
     spoof_score = min(100.0, float(spoof_points))
     details["spoof_score"] = spoof_score
+    details["screen_geometry_confirmed"] = screen_geometry_confirmed
 
-    # Threshold for presentation attack
-    is_spoof = spoof_score >= 45.0
+    # Flag as spoof if score >= 45 AND either confirmed phone screen geometry or face-surface 2D anomaly
+    is_spoof = (spoof_score >= 45.0) and (screen_geometry_confirmed or face_surface_flags > 0)
     reason_str = " | ".join(reasons) if reasons else "Live face verified"
 
     return is_spoof, reason_str, spoof_score, details
@@ -348,9 +477,10 @@ def recognize_face(
         primary_spoof_reason = None
         suspected_spoof_target = None
 
-        # Strict security thresholds to eliminate false positives and 2D photo bypasses
-        MATCH_TOLERANCE = 0.46  # Strict distance threshold for biometric authorization
-        MIN_MATCH_CONFIDENCE = 50.0  # Minimum 50% confidence required to authorize
+        # Balanced biometric threshold for webcam lighting variations (day/night, glasses on/off).
+        # 2D photo & phone screen attacks are blocked independently by check_liveness_and_spoof().
+        MATCH_TOLERANCE = 0.54
+        clahe_rgb_cache = None
 
         for loc, enc in zip(face_locations, encodings):
             matched = False
@@ -365,27 +495,42 @@ def recognize_face(
                 distances = face_recognition.face_distance(known_encodings, enc)
                 best_idx = int(np.argmin(distances))
                 best_dist = float(distances[best_idx])
+
+                # Lighting-resilient fallback: if a live face is borderline (e.g. harsh side sunlight or dim room),
+                # normalize lighting via CLAHE and re-evaluate encoding at the same face location
+                if (not is_spoof) and (MATCH_TOLERANCE < best_dist <= 0.62):
+                    try:
+                        if clahe_rgb_cache is None:
+                            clahe_rgb_cache = enhance_image_clahe(bgr_img)
+                        clahe_encs = face_recognition.face_encodings(clahe_rgb_cache, [loc])
+                        if clahe_encs:
+                            clahe_dists = face_recognition.face_distance(known_encodings, clahe_encs[0])
+                            clahe_best_idx = int(np.argmin(clahe_dists))
+                            clahe_best_dist = float(clahe_dists[clahe_best_idx])
+                            if clahe_best_dist < best_dist:
+                                best_dist = clahe_best_dist
+                                best_idx = clahe_best_idx
+                    except Exception as clahe_err:
+                        logger.debug(f"CLAHE fallback encoding skipped: {clahe_err}")
+
                 candidate_user = user_cache.get(known_user_ids[best_idx])
                 candidate_name = candidate_user["username"] if candidate_user else "Unknown"
 
-                # Calculate confidence score based on strict distance curve
-                if best_dist < 0.55:
-                    confidence = round(max(0.0, min(100.0, (1.0 - (best_dist / 0.55)) * 100)), 1)
-                else:
-                    confidence = 0.0
+                # Calibrated confidence score aligned with MATCH_TOLERANCE (60%-100% for valid matches)
+                confidence = face_distance_to_confidence(best_dist, MATCH_TOLERANCE)
 
                 if is_spoof:
                     # Spoof attack detected! Disallow match regardless of similarity
                     matched = False
                     matched_name = "ការក្លែងបន្លំ (Screen Spoof)"
-                    matched_role = f"Target: {candidate_name}" if best_dist <= 0.52 else None
+                    matched_role = f"Target: {candidate_name}" if best_dist <= 0.56 else None
                     spoof_detected_count += 1
                     if not primary_spoof_reason:
                         primary_spoof_reason = spoof_reason
-                    if not suspected_spoof_target and best_dist <= 0.52:
+                    if not suspected_spoof_target and best_dist <= 0.56:
                         suspected_spoof_target = candidate_name
 
-                elif best_dist <= MATCH_TOLERANCE and confidence >= MIN_MATCH_CONFIDENCE:
+                elif best_dist <= MATCH_TOLERANCE:
                     matched = True
                     if candidate_user:
                         matched_name = candidate_user["username"]

@@ -121,4 +121,16 @@ def test_spoof_alert_log_lifecycle():
         db.close()
 
 
+def test_face_distance_to_confidence():
+    from app.main import face_distance_to_confidence
+
+    assert face_distance_to_confidence(0.0, 0.54) == 100.0
+    assert face_distance_to_confidence(0.35, 0.54) >= 75.0
+    assert face_distance_to_confidence(0.50, 0.54) >= 60.0
+    assert face_distance_to_confidence(0.54, 0.54) == 60.0
+    assert face_distance_to_confidence(0.60, 0.54) < 60.0
+    assert face_distance_to_confidence(0.90, 0.54) == 0.0
+
+
+
 
