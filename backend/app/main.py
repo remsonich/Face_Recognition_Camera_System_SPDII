@@ -87,12 +87,15 @@ def get_db():
         db.close()
 
 
-# In-memory tracking for scene and person transitions
+# In-memory tracking for scene, person transitions, and alert log deduplication cooldown
 last_detection_state = {
     "person_encoding": None,
     "last_recognized_name": None,
     "scene_histogram": None,
-    "face_count": 0
+    "face_count": 0,
+    "last_alert_log_type": None,
+    "last_alert_log_matched": None,
+    "last_alert_log_time": None
 }
 
 
@@ -643,22 +646,46 @@ def recognize_face(
 
             last_detection_state["last_recognized_name"] = names_str
 
-        # Persist alert to database if triggered
+        # Persist alert to database if triggered (with 20s server-side deduplication cooldown)
         log_id = None
         if alert and alert_type:
             try:
-                from datetime import timezone
-                db_log = models.AlertLog(
-                    alert_type=alert_type,
-                    faces_count=faces_found,
-                    matched_users=", ".join(matched_users_set) if matched_users_set else (f"Spoof ({suspected_spoof_target})" if suspected_spoof_target else None),
-                    telegram_sent=telegram_sent,
-                    created_at=datetime.now(timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                matched_log_str = (
+                    ", ".join(matched_users_set)
+                    if matched_users_set
+                    else (suspected_spoof_target if suspected_spoof_target else None)
                 )
-                db.add(db_log)
-                db.commit()
-                db.refresh(db_log)
-                log_id = db_log.id
+
+                last_t = last_detection_state.get("last_alert_log_time")
+                last_type = last_detection_state.get("last_alert_log_type")
+                last_matched = last_detection_state.get("last_alert_log_matched")
+
+                is_duplicate_burst = False
+                if last_t is not None and last_type == alert_type:
+                    elapsed = (now_utc - last_t).total_seconds()
+                    if elapsed < 20.0:
+                        if alert_type in ("spoof_detected", "unknown_person"):
+                            is_duplicate_burst = True
+                        elif last_matched == matched_log_str:
+                            is_duplicate_burst = True
+
+                if not is_duplicate_burst:
+                    db_log = models.AlertLog(
+                        alert_type=alert_type,
+                        faces_count=faces_found,
+                        matched_users=matched_log_str,
+                        telegram_sent=telegram_sent,
+                        created_at=now_utc
+                    )
+                    db.add(db_log)
+                    db.commit()
+                    db.refresh(db_log)
+                    log_id = db_log.id
+
+                    last_detection_state["last_alert_log_type"] = alert_type
+                    last_detection_state["last_alert_log_matched"] = matched_log_str
+                    last_detection_state["last_alert_log_time"] = now_utc
             except Exception as log_err:
                 logger.warning(f"Could not persist alert log to database: {log_err}")
                 db.rollback()
@@ -978,17 +1005,55 @@ def get_alert_logs(
         if alert_type and alert_type != "all":
             query = query.filter(models.AlertLog.alert_type == alert_type)
         records = query.order_by(models.AlertLog.created_at.desc()).limit(limit).all()
-        return [
-            {
-                "id": r.id,
-                "type": r.alert_type,
-                "faces": r.faces_count,
-                "matched": [u.strip() for u in r.matched_users.split(",")] if r.matched_users else [],
-                "telegram": r.telegram_sent,
-                "time": (r.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")) if r.created_at else None
-            }
-            for r in records
-        ]
+
+        def _clean_matched(raw_str: Optional[str]) -> List[str]:
+            if not raw_str:
+                return []
+            cleaned = []
+            for u in raw_str.split(","):
+                name = u.strip()
+                if name.startswith("Spoof (") and name.endswith(")"):
+                    name = name[7:-1].strip()
+                if name:
+                    cleaned.append(name)
+            return cleaned
+
+        deduped = []
+        for r in records:
+            matched_list = _clean_matched(r.matched_users)
+            r_time = r.created_at
+            is_dup = False
+
+            for prev in deduped:
+                prev_time = prev["_dt"]
+                if prev["type"] == r.alert_type and r_time is not None and prev_time is not None:
+                    t1 = r_time.replace(tzinfo=None)
+                    t2 = prev_time.replace(tzinfo=None)
+                    if abs((t2 - t1).total_seconds()) < 20.0:
+                        if r.alert_type in ("spoof_detected", "unknown_person") or prev["matched"] == matched_list:
+                            # Keep richer matched info if newer burst row had empty matched
+                            if not prev["matched"] and matched_list:
+                                prev["matched"] = matched_list
+                            if r.telegram_sent:
+                                prev["telegram"] = True
+                            is_dup = True
+                            break
+
+            if not is_dup:
+                deduped.append({
+                    "id": r.id,
+                    "type": r.alert_type,
+                    "faces": r.faces_count,
+                    "matched": matched_list,
+                    "telegram": r.telegram_sent,
+                    "time": (r_time.strftime("%Y-%m-%dT%H:%M:%SZ")) if r_time else None,
+                    "_dt": r_time
+                })
+
+        for item in deduped:
+            item.pop("_dt", None)
+
+        return deduped
     except Exception as e:
         logger.warning(f"Error fetching logs from database: {e}")
         return []

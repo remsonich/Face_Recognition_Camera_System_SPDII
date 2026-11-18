@@ -361,17 +361,30 @@ async function scan() {
     }
 
     if (d.alert && d.alert_type) {
-      log.unshift({
-        id: d.log_id || undefined,
-        type: d.alert_type,
-        faces: st.faces,
-        matched: d.matched_users,
-        telegram: d.telegram_sent,
-        time: new Date().toISOString()
-      });
-      log = deduplicateLogs(log);
-      log = log.slice(0, 1000);
-      save('frs_log', log);
+      let logMatched = Array.isArray(d.matched_users) ? [...d.matched_users] : [];
+      if (d.alert_type === 'spoof_detected' && logMatched.length === 0 && Array.isArray(d.faces)) {
+        const spoofTargets = d.faces
+          .filter(f => f.is_spoof && f.role && f.role.startsWith('Target: '))
+          .map(f => f.role.replace('Target: ', '').trim())
+          .filter(Boolean);
+        if (spoofTargets.length > 0) logMatched = spoofTargets;
+      }
+
+      // Only append a new log entry if the backend created a new AlertLog row (not cooldown-suppressed)
+      // or if it's a local-only event like person_left
+      if (d.log_id || d.alert_type === 'person_left') {
+        log.unshift({
+          id: d.log_id || undefined,
+          type: d.alert_type,
+          faces: st.faces,
+          matched: logMatched,
+          telegram: d.telegram_sent,
+          time: new Date().toISOString()
+        });
+        log = deduplicateLogs(log);
+        log = log.slice(0, 1000);
+        save('frs_log', log);
+      }
       alertFx(d.alert_type, d.matched_users);
     }
 
@@ -1190,43 +1203,86 @@ const logFilter = {
   pageSize: 25         // 10, 25, 50, 100, or 'all'
 };
 
+function normalizeMatchedNames(matched) {
+  if (!Array.isArray(matched)) return [];
+  return matched
+    .map(n => {
+      let s = String(n || '').trim();
+      if (s.startsWith('Spoof (') && s.endsWith(')')) {
+        s = s.slice(7, -1).trim();
+      }
+      return s;
+    })
+    .filter(Boolean);
+}
+
 function deduplicateLogs(items) {
   if (!Array.isArray(items)) return [];
+
+  // Prioritize server-backed entries (with id) and newest entries first
+  const sorted = [...items].sort((a, b) => {
+    const tDiff = new Date(b?.time || 0) - new Date(a?.time || 0);
+    if (Math.abs(tDiff) > 20000) return tDiff;
+    if (Boolean(b?.id) !== Boolean(a?.id)) return b?.id ? 1 : -1;
+    return tDiff;
+  });
+
   const result = [];
   const seenIds = new Set();
 
-  for (const item of items) {
-    if (!item || !item.time) continue;
-    if (item.id && seenIds.has(item.id)) continue;
+  for (const rawItem of sorted) {
+    if (!rawItem || !rawItem.time) continue;
+    if (rawItem.id && seenIds.has(rawItem.id)) continue;
 
-    const itemTimeMs = new Date(item.time).getTime();
+    const itemTimeMs = new Date(rawItem.time).getTime();
     if (isNaN(itemTimeMs)) continue;
 
-    const isDup = result.some(existing => {
+    const item = {
+      ...rawItem,
+      matched: normalizeMatchedNames(rawItem.matched)
+    };
+
+    const existingDup = result.find(existing => {
       if (item.id && existing.id && item.id === existing.id) return true;
 
       const existingTimeMs = new Date(existing.time).getTime();
       const diffSec = Math.abs(itemTimeMs - existingTimeMs) / 1000;
 
-      // Same event within 15 seconds
-      if (diffSec < 15 && existing.type === item.type) {
-        const itemM = (Array.isArray(item.matched) ? item.matched.join(',') : '');
-        const existM = (Array.isArray(existing.matched) ? existing.matched.join(',') : '');
-        return itemM === existM;
+      // Same alert type within 20 seconds -> collapse burst duplicates
+      if (diffSec < 20 && existing.type === item.type) {
+        if (item.type === 'spoof_detected' || item.type === 'unknown_person') {
+          return true;
+        }
+        const itemM = item.matched.join(',');
+        const existM = existing.matched.join(',');
+        return itemM === existM || !itemM || !existM;
       }
 
       // Timezone naive vs UTC offset artifact (7 hours = 25200 seconds)
       const tzOffsetDiff = Math.abs(diffSec - 25200);
-      if (tzOffsetDiff < 20 && existing.type === item.type) {
-        const itemM = (Array.isArray(item.matched) ? item.matched.join(',') : '');
-        const existM = (Array.isArray(existing.matched) ? existing.matched.join(',') : '');
+      if (tzOffsetDiff < 25 && existing.type === item.type) {
+        if (item.type === 'spoof_detected' || item.type === 'unknown_person') {
+          return true;
+        }
+        const itemM = item.matched.join(',');
+        const existM = existing.matched.join(',');
         return itemM === existM;
       }
 
       return false;
     });
 
-    if (!isDup) {
+    if (existingDup) {
+      // Merge richer metadata into the kept entry
+      if (!existingDup.id && item.id) {
+        existingDup.id = item.id;
+        seenIds.add(item.id);
+      }
+      if (existingDup.matched.length === 0 && item.matched.length > 0) {
+        existingDup.matched = item.matched;
+      }
+      if (item.telegram) existingDup.telegram = true;
+    } else {
       if (item.id) seenIds.add(item.id);
       result.push(item);
     }
@@ -1243,7 +1299,8 @@ async function loadLogsFromBackend() {
     if (r.ok) {
       const serverLogs = await r.json();
       if (Array.isArray(serverLogs)) {
-        log = deduplicateLogs([...log, ...serverLogs]);
+        // Use authoritative deduplicated database logs (eliminates stale localStorage ghost duplicates)
+        log = deduplicateLogs(serverLogs);
         save('frs_log', log);
         render();
       }
